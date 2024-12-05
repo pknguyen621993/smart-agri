@@ -1,0 +1,117 @@
+networks:
+    datapipeline:
+        driver: bridge
+        ipam:
+            driver: default
+            config:
+                - subnet: "172.18.0.0/16"
+
+services:  
+  spark:
+    image: docker.io/bitnami/spark:3.5.1
+    container_name: spark-master
+    hostname: spark-master
+    user: root
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    ports:
+      - '8080:8080'
+    volumes:
+      - ./spark-streaming:/home/spark-streaming
+    networks:
+      datapipeline:
+        ipv4_address: 172.18.0.2
+  
+  kafka:
+    image: apache/kafka:3.8.0
+    container_name: kafka
+    hostname: kafka
+    ports:
+      - '9092:9092'
+    environment:
+      # Configure listeners for both docker and host communication
+      KAFKA_LISTENERS: CONTROLLER://localhost:9091,HOST://0.0.0.0:9092,DOCKER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: HOST://localhost:9092,DOCKER://172.18.0.3:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,DOCKER:PLAINTEXT,HOST:PLAINTEXT
+
+      # Settings required for KRaft mode
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9091
+
+      # Listener to use for broker-to-broker communication
+      KAFKA_INTER_BROKER_LISTENER_NAME: DOCKER
+
+      # Required for a single node cluster
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      datapipeline:
+        ipv4_address: 172.18.0.3
+
+  cassandra:
+    image: cassandra
+    container_name: cassandra
+    hostname: cassandra
+    ports:
+      - '9042:9042'
+    environment:
+      - CASSANDRA_USER=root
+      - CASSANDRA_PASSWORD=root
+    volumes:
+      - cassandradb:/var/lib/cassandra
+    networks:
+      datapipeline:
+        ipv4_address: 172.18.0.4
+
+  postgres:
+    image: postgres
+    container_name: postgres
+    hostname: postgres
+    ports:
+      - '5432:5432'
+    environment:
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=root
+    volumes:
+     - postgresdb:/var/lib/postgresql/data
+    networks:
+      datapipeline:
+        ipv4_address: 172.18.0.5
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui
+    container_name: kafka-ui
+    hostname: kafka
+    ports:
+      - '8081:8080'
+    environment:
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    depends_on:
+      kafka:
+        condition: service_started
+    networks:
+      datapipeline:
+        ipv4_address: 172.18.0.6
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    hostname: minio
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: password
+    volumes:
+      - ./minio/data:/data
+    command: server /data --console-address ":9001"
+
+volumes:
+  cassandradb:
+  postgresdb:
